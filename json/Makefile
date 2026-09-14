@@ -89,6 +89,7 @@ all_runners := $(patsubst %,run[%], $(artifacts)) \
 	run[test.php] \
 	run[test.clj] \
 	run[test.rkt] \
+	run[test-custom.rkt] \
 	run[test.jl]
 
 # Build
@@ -404,6 +405,9 @@ run[test.clj]:: run[%]: %
 	$(CLOJURE_RUN)
 
 run[test.rkt]:: run[%]: %
+	$(RACKET_RUN)
+
+run[test-custom.rkt]:: run[%]: %
 	$(RACKET_RUN)
 
 # Utilities
