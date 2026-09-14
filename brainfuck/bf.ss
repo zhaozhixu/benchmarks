@@ -10,11 +10,11 @@
 (define (print p n)
   (if (printer-quiet p)
       (begin
-          (printer-sum1-set! p (remainder
-                                (+ (printer-sum1 p) n)
+          (printer-sum1-set! p (fxremainder
+                                (fx+ (printer-sum1 p) n)
                                 255))
-          (printer-sum2-set! p (remainder
-                                (+ (printer-sum2 p) (printer-sum1 p))
+          (printer-sum2-set! p (fxremainder
+                                (fx+ (printer-sum2 p) (printer-sum1 p))
                                 255)))
       (begin
           (display (integer->char n))
@@ -34,7 +34,7 @@
     src))
 
 (define (vector-grow-if-needed vec len)
-  (if (<= len (vector-length vec))
+  (if (fx<= len (vector-length vec))
       vec
       (let ((new-vec (make-vector len)))
         (copy-into! new-vec 0 vec)
@@ -44,14 +44,14 @@
   (vector-ref (tape-data t) (tape-pos t)))
 
 (define (tape-move t n)
-  (let ((new-pos (+ n (tape-pos t))))
+  (let ((new-pos (fx+ n (tape-pos t))))
     (make-tape
-      (vector-grow-if-needed (tape-data t) (add1 new-pos))
+      (vector-grow-if-needed (tape-data t) (fx+ new-pos 1))
       new-pos)))
 
 (define (tape-inc! t n)
   (let ((data (tape-data t)) (pos (tape-pos t)))
-    (vector-set! data pos (+ n (vector-ref data pos)))
+    (vector-set! data pos (fx+ n (vector-ref data pos)))
     t))
 
 ;;; Parser.
@@ -92,7 +92,7 @@
          (print p (tape-get t))
          (run rst t p))
         ((loop)
-         (if (> (tape-get t) 0)
+         (if (fx> (tape-get t) 0)
              (run parsed (run val t p) p)
              (run rst t p)))
         (else (run rst t p))))))
