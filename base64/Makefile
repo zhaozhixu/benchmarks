@@ -44,6 +44,7 @@ all_runners := $(patsubst %,run[%], $(artifacts)) \
 	run[test.tcl] \
 	run[test.php] \
 	run[test.rkt] \
+	run[test-custom.rkt] \
 	run[test.scala]
 
 # Build
@@ -202,6 +203,9 @@ run[test.php]:: run[%]: %
 	$(PHP_RUN)
 
 run[test.rkt]:: run[%]: %
+	$(RACKET_RUN)
+
+run[test-custom.rkt]:: run[%]: %
 	$(RACKET_RUN)
 
 # Utilities
