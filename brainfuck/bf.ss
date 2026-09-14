@@ -1,7 +1,7 @@
 (import (chezscheme))
 
 (define-record-type op (fields op val))
-(define-record-type tape (fields data pos))
+(define-record-type tape (fields (mutable data) (mutable pos)))
 
 ;;; Printer.
 
@@ -23,42 +23,38 @@
 (define (get-checksum p)
   (bitwise-ior (ash (printer-sum2 p) 8) (printer-sum1 p)))
 
-;;; Vector and tape ops.
+;;; Tape ops.
 
-(define (copy-into! dest dest-start src)
-  (define i dest-start)
-  (vector-for-each
-    (lambda (x)
-      (vector-set! dest i x)
-      (set! i (+ 1 i)))
-    src))
-
-(define (vector-grow-if-needed vec len)
-  (if (fx<= len (vector-length vec))
-      vec
-      (let ((new-vec (make-vector len)))
-        (copy-into! new-vec 0 vec)
-        new-vec)))
+(define (grow-if-needed! t len)
+  (let* ((data (tape-data t)) (old-len (fxvector-length data)))
+    (when (fx>= len old-len)
+      (let loop ((new-len (fx* 2 old-len)))
+        (if (fx>= len new-len)
+            (loop (fx* 2 new-len))
+            (let ((new-data (make-fxvector new-len 0)))
+              (let copy ((i 0))
+                (when (fx< i old-len)
+                  (fxvector-set! new-data i (fxvector-ref data i))
+                  (copy (fx+ i 1))))
+              (tape-data-set! t new-data)))))))
 
 (define (tape-get t)
-  (vector-ref (tape-data t) (tape-pos t)))
+  (fxvector-ref (tape-data t) (tape-pos t)))
 
-(define (tape-move t n)
+(define (tape-move! t n)
   (let ((new-pos (fx+ n (tape-pos t))))
-    (make-tape
-      (vector-grow-if-needed (tape-data t) (fx+ new-pos 1))
-      new-pos)))
+    (grow-if-needed! t new-pos)
+    (tape-pos-set! t new-pos)))
 
 (define (tape-inc! t n)
   (let ((data (tape-data t)) (pos (tape-pos t)))
-    (vector-set! data pos (fx+ n (vector-ref data pos)))
-    t))
+    (fxvector-set! data pos (fx+ n (fxvector-ref data pos)))))
 
 ;;; Parser.
 
 (define (parse-helper lst acc)
   (if (null? lst)
-      (reverse acc)
+      (cons '() (list->vector (reverse acc)))
       (let ((rst (cdr lst)))
         (case (car lst)
           ((#\+) (parse-helper rst (cons (make-op 'inc 1) acc)))
@@ -72,30 +68,31 @@
                         (cons
                           (make-op 'loop (cdr subparsed))
                           acc))))
-          ((#\]) (cons rst (reverse acc)))
+          ((#\]) (cons rst (list->vector (reverse acc))))
           (else (parse-helper rst acc))))))
 
-(define (parse bf-code) (parse-helper (string->list bf-code) '()))
+(define (parse bf-code) (cdr (parse-helper (string->list bf-code) '())))
 
 ;;; Interpreter.
 
 (define (run parsed t p)
-  (if (null? parsed)
-    t
-    (let* ((op (op-op (car parsed)))
-           (val (op-val (car parsed)))
-           (rst (cdr parsed)))
-      (case op
-        ((inc) (run rst (tape-inc! t val) p))
-        ((move) (run rst (tape-move t val) p))
-        ((print)
-         (print p (tape-get t))
-         (run rst t p))
-        ((loop)
-         (if (fx> (tape-get t) 0)
-             (run parsed (run val t p) p)
-             (run rst t p)))
-        (else (run rst t p))))))
+  (let ((len (vector-length parsed)))
+    (let next ((i 0))
+      (when (fx< i len)
+        (let* ((cur (vector-ref parsed i))
+               (op (op-op cur))
+               (val (op-val cur)))
+          (case op
+            ((inc) (tape-inc! t val))
+            ((move) (tape-move! t val))
+            ((print) (print p (tape-get t)))
+            ((loop)
+             (let again ()
+               (when (fx> (tape-get t) 0)
+                 (run val t p)
+                 (again))))
+            (else (void))))
+        (next (fx+ i 1))))))
 
 ;;; I/O.
 (load-shared-object "../common/libnotify/target/libnotify.so")
@@ -128,7 +125,7 @@
   (define p-left (make-printer 0 0 #t))
   (define p-right (make-printer 0 0 #t))
 
-  (run (parse text) (make-tape (make-vector 1) 0) p-left)
+  (run (parse text) (make-tape (make-fxvector 1 0) 0) p-left)
   (for-each
    (lambda (c) (print p-right (char->integer c)))
    (string->list "Hello World!\n"))
@@ -143,7 +140,7 @@
   (define p (make-printer 0 0 (getenv "QUIET")))
 
   (notify-with-pid "Chez Scheme")
-  (run (parse text) (make-tape (make-vector 1) 0) p)
+  (run (parse text) (make-tape (make-fxvector 1 0) 0) p)
   (notify "stop")
 
   (if (printer-quiet p) (printf "Output checksum: ~s\n" (get-checksum p))))
