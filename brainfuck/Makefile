@@ -43,6 +43,7 @@ fast_runners := $(patsubst %,run[%], $(artifacts)) \
 	run[bf.rkt] \
 	run[bf-staged.rkt] \
 	run[bf.ss] \
+	run[bf-staged.ss] \
 	run[truby-jvm][bf.rb] \
 	run[truby-native][bf.rb] \
 	run[bf.jl] \
@@ -235,6 +236,9 @@ run[bf-staged.rkt]:: run[%]: %
 	$(RACKET_RUN) $(BF_SRC)
 
 run[bf.ss]:: run[%]: % | libnotify
+	$(SCHEME_RUN) $(BF_SRC)
+
+run[bf-staged.ss]:: run[%]: % | libnotify
 	$(SCHEME_RUN) $(BF_SRC)
 
 run[bf.jl]:: run[%]: % | $(julia_fmt)
