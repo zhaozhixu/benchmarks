@@ -1,13 +1,16 @@
 #lang racket/base
-(require racket/file racket/tcp racket/cmdline racket/os racket/fixnum
+(require racket/file racket/tcp racket/cmdline racket/os
+         (only-in racket/fixnum make-fxvector fxvector-length fxremainder fx< fx>= fx* fx=)
          (rename-in racket/unsafe/ops
                     [unsafe-vector*-ref vector-ref]
-                    [unsafe-vector*-set! vector-set!]
                     [unsafe-vector*-length vector-length]
+                    [unsafe-fxvector-ref fxvector-ref]
+                    [unsafe-fxvector-set! fxvector-set!]
                     [unsafe-fx+ +]))
 (#%declare #:unsafe)
+(define OP-INC 0) (define OP-MOVE 1) (define OP-PRINT 2) (define OP-LOOP 3)
 (struct op (op val) #:authentic)
-(struct tape (data pos) #:authentic)
+(struct tape ([data #:mutable] [pos #:mutable]) #:authentic)
 
 ;;; Printer.
 
@@ -29,71 +32,72 @@
 (define (get-checksum p)
   (bitwise-ior (arithmetic-shift (printer-sum2 p) 8) (printer-sum1 p)))
 
-;;; Vector and tape ops.
+;;; Tape ops.
 
-(define (vector-grow-if-needed vec len)
-  (define old-len (vector-length vec))
-  (cond [(fx< len old-len) vec]
-        [else
-         (let loop ([new-len (fx* 2 old-len)])
-           (cond [(fx>= len new-len) (loop (fx* 2 new-len))]
-                 [else (define new-vec (make-vector new-len))
-                       (vector-copy! new-vec 0 vec)
-                       new-vec]))]))
+(define (grow-if-needed! t len)
+  (define data (tape-data t))
+  (define old-len (fxvector-length data))
+  (when (fx>= len old-len)
+    (let loop ([new-len (fx* 2 old-len)])
+      (cond [(fx>= len new-len) (loop (fx* 2 new-len))]
+            [else (define new-data (make-fxvector new-len 0))
+                  (let copy ([i 0])
+                    (when (fx< i old-len)
+                      (fxvector-set! new-data i (fxvector-ref data i))
+                      (copy (+ i 1))))
+                  (set-tape-data! t new-data)]))))
 
 (define (tape-get t)
-  (vector-ref (tape-data t) (tape-pos t)))
+  (fxvector-ref (tape-data t) (tape-pos t)))
 
-(define (tape-move t n)
-  (let ([new-pos (+ n (tape-pos t))])
-    (tape (vector-grow-if-needed (tape-data t) new-pos) new-pos)))
+(define (tape-move! t n)
+  (define new-pos (+ n (tape-pos t)))
+  (grow-if-needed! t new-pos)
+  (set-tape-pos! t new-pos))
 
 (define (tape-inc! t n)
   (let ((data (tape-data t)) (pos (tape-pos t)))
-    (vector-set! data pos (+ n (vector-ref data pos)))))
+    (fxvector-set! data pos (+ n (fxvector-ref data pos)))))
 
 ;;; Parser.
 
 (define (parse-helper lst acc)
   (if (null? lst)
-      (reverse acc)
+      (cons '() (list->vector (reverse acc)))
       (let ([rst (cdr lst)])
         (case (car lst)
-          [(#\+) (parse-helper rst (cons (op 'inc 1) acc))]
-          [(#\-) (parse-helper rst (cons (op 'inc -1) acc))]
-          [(#\>) (parse-helper rst (cons (op 'move 1) acc))]
-          [(#\<) (parse-helper rst (cons (op 'move -1) acc))]
-          [(#\.) (parse-helper rst (cons (op 'print -1) acc))]
+          [(#\+) (parse-helper rst (cons (op OP-INC 1) acc))]
+          [(#\-) (parse-helper rst (cons (op OP-INC -1) acc))]
+          [(#\>) (parse-helper rst (cons (op OP-MOVE 1) acc))]
+          [(#\<) (parse-helper rst (cons (op OP-MOVE -1) acc))]
+          [(#\.) (parse-helper rst (cons (op OP-PRINT -1) acc))]
           [(#\[) (let ([subparsed (parse-helper rst '())])
                  (parse-helper (car subparsed)
-                               (cons (op 'loop (cdr subparsed)) acc)))]
-          [(#\]) (cons rst (reverse acc))]
+                               (cons (op OP-LOOP (cdr subparsed)) acc)))]
+          [(#\]) (cons rst (list->vector (reverse acc)))]
           [else (parse-helper rst acc)]))))
 
-(define (parse bf-code) (parse-helper (string->list bf-code) '()))
+(define (parse bf-code) (cdr (parse-helper (string->list bf-code) '())))
 
 ;;; Interpreter.
 
 (define (run parsed t p)
-  (let loop ([parsed parsed] [t t])
-    (cond
-      [(null? parsed) t]
-      [else
-       (define fst (car parsed))
-       (define op (op-op fst))
-       (define val (op-val fst))
-       (define rst (cdr parsed))
-       (case op
-         [(inc) (tape-inc! t val)
-                (loop rst t)]
-         [(move) (loop rst (tape-move t val))]
-         [(print) (print p (tape-get t))
-                  (loop rst t)]
-         [(loop)
-          (if (> (tape-get t) 0)
-              (loop parsed (run val t p))
-              (loop rst t))]
-         [else (loop rst t)])])))
+  (define len (vector-length parsed))
+  (let next ([i 0])
+    (when (fx< i len)
+      (define cur (vector-ref parsed i))
+      (define op (op-op cur))
+      (define val (op-val cur))
+      (cond
+        [(fx= op OP-INC) (tape-inc! t val)]
+        [(fx= op OP-MOVE) (tape-move! t val)]
+        [(fx= op OP-PRINT) (print p (tape-get t))]
+        [else
+         (let again ()
+           (when (> (tape-get t) 0)
+             (run val t p)
+             (again)))])
+      (next (+ i 1)))))
 
 (define (notify msg)
   (with-handlers ([exn:fail:network? (lambda (_) (void))])
@@ -112,7 +116,7 @@
   (define p-left (printer 0 0 #t))
   (define p-right (printer 0 0 #t))
 
-  (run (parse text) (tape (vector 0) 0) p-left)
+  (run (parse text) (tape (make-fxvector 1 0) 0) p-left)
   (for-each
    (lambda (c) (print p-right (char->integer c)))
    (string->list "Hello World!\n"))
@@ -128,7 +132,7 @@
   (define p (printer 0 0 (getenv "QUIET")))
 
   (notify (format "Racket\t~s" (getpid)))
-  (void (run (parse text) (tape (vector 0) 0) p))
+  (run (parse text) (tape (make-fxvector 1 0) 0) p)
   (notify "stop")
 
   (when (printer-quiet p) (printf "Output checksum: ~s\n" (get-checksum p))))
