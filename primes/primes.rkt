@@ -85,12 +85,21 @@
   (omit-squares)
   (to-list))
 
+;; Children are created on first use: most trie nodes are leaves, and an
+;; empty mutable hash is not free in Racket the way an empty
+;; pmr::unordered_map is in the C++ reference.
+(define (Node-children! node)
+  (or (Node-children node)
+      (let ([children (make-hasheq)])
+        (set-Node-children! node children)
+        children)))
+
 (define (generate-trie primes)
-  (define root (Node (make-hasheq) #f))
+  (define root (Node #f #f))
   (for ([el (in-list primes)])
     (define head root)
     (for ([ch (in-string (number->string el))])
-      (set! head (hash-ref! (Node-children head) ch (lambda () (Node (make-hasheq) #f)))))
+      (set! head (hash-ref! (Node-children! head) ch (lambda () (Node #f #f)))))
     (set-Node-terminal! head #t))
   root)
 
@@ -99,7 +108,8 @@
     (define head (generate-trie (calc (Sieve upper-bound #f))))
     (define str-prefix (number->string prefix))
     (for ([ch (in-string str-prefix)])
-      (set! head (hash-ref (Node-children head) ch #f))
+      (set! head (let ([children (Node-children head)])
+                   (and children (hash-ref children ch #f))))
       (when (not head)
         (return #f)))
 
@@ -112,7 +122,7 @@
         [else
          (define top-prefix (dequeue! queue))
          (define-values (top prefix) (values (car top-prefix) (cdr top-prefix)))
-         (for ([(ch v) (in-hash (Node-children top))])
+         (for ([(ch v) (in-hash (or (Node-children top) #hasheq()))])
            (enqueue! queue (cons v (string-append prefix (string ch)))))
          (if (Node-terminal top)
            (loop queue (cons (string->number prefix) result))
