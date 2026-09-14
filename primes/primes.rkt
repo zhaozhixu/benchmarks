@@ -1,10 +1,9 @@
 #lang racket/base
 
-(require racket/os racket/fixnum racket/tcp racket/unsafe/ops racket/vector racket/list data/queue
+(require racket/os racket/fixnum racket/tcp racket/unsafe/ops racket/list data/queue
          (rename-in racket/unsafe/ops
-                    [unsafe-vector*-ref vector-ref]
-                    [unsafe-vector*-set! vector-set!]
-                    [unsafe-vector*-length vector-length]
+                    [unsafe-bytes-ref bytes-ref]
+                    [unsafe-bytes-set! bytes-set!]
                     [unsafe-fx+ +]
                     [unsafe-fx- -]
                     [unsafe-fxmodulo modulo]
@@ -23,16 +22,17 @@
 (struct Sieve (limit [prime #:mutable])
   #:authentic
   #:guard (lambda (limit prime type-name)
-            (values limit (make-vector (+ limit 1) #f))))
+            (values limit (make-bytes (+ limit 1) 0))))
 
 (define (calc sieve)
   (define limit (+ (Sieve-limit sieve)))
   (define prime (Sieve-prime sieve))
 
   (define (to-list)
-    (vector-set*! prime 2 #t 3 #t)
+    (bytes-set! prime 2 1)
+    (bytes-set! prime 3 1)
     (for/list ([p (in-range 2 (+ limit 1))]
-               #:when (vector-ref prime p))
+               #:when (= 1 (bytes-ref prime p)))
       p))
 
   (define (omit-squares)
@@ -40,28 +40,28 @@
       (define sq (* r r))
       (cond
         [(>= sq limit) r]
-        [else (when (vector-ref prime r)
+        [else (when (= 1 (bytes-ref prime r))
                 (let loop ([i sq])
                   (cond
                     [(>= i limit) i]
-                    [else (vector-set! prime i #f)
+                    [else (bytes-set! prime i 0)
                           (loop (+ i sq))])))
               (loop (+ r 1))])))
 
   (define (step1 x y)
     (let ([n (+ (* 4 x x) (* y y))])
       (when (and (<= n limit) (or (= (modulo n 12) 1) (= (modulo n 12) 5)))
-        (vector-set! prime n (not (vector-ref prime n))))))
+        (bytes-set! prime n (- 1 (bytes-ref prime n))))))
 
   (define (step2 x y)
     (let ([n (+ (* 3 x x) (* y y))])
       (when (and (<= n limit) (= (modulo n 12) 7 ))
-        (vector-set! prime n (not (vector-ref prime n))))))
+        (bytes-set! prime n (- 1 (bytes-ref prime n))))))
 
   (define (step3 x y)
     (let ([n (- (* 3 x x) (* y y))])
       (when (and (> x y) (<= n limit) (= (modulo n 12) 11))
-        (vector-set! prime n (not (vector-ref prime n))))))
+        (bytes-set! prime n (- 1 (bytes-ref prime n))))))
 
   (define (loop-y x)
     (let loop ([y 1])
