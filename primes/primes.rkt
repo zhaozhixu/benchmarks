@@ -89,11 +89,8 @@
   (define root (Node (make-hasheq) #f))
   (for ([el (in-list primes)])
     (define head root)
-    (define children (Node-children head))
-    (define el-str (number->string el))
-    (define el-str-len (string-length el-str))
-    (for ([ch (in-string el-str)])
-      (set! head (hash-ref! (Node-children head) ch (Node (make-hasheq) #f))))
+    (for ([ch (in-string (number->string el))])
+      (set! head (hash-ref! (Node-children head) ch (lambda () (Node (make-hasheq) #f)))))
     (set-Node-terminal! head #t))
   root)
 
@@ -102,7 +99,7 @@
     (define head (generate-trie (calc (Sieve upper-bound #f))))
     (define str-prefix (number->string prefix))
     (for ([ch (in-string str-prefix)])
-      (set! head (hash-ref! (Node-children head) ch #f))
+      (set! head (hash-ref (Node-children head) ch #f))
       (when (not head)
         (return #f)))
 
